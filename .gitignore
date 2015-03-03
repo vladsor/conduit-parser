@@ -1,0 +1,13 @@
+*.hi
+*.o
+*.hs~
+dist/
+src/main
+*.aux
+*.eventlog
+*.hp
+*.prof
+*.ps
+*.pdf
+*.config
+TAGS
