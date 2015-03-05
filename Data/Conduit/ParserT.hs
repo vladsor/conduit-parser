@@ -9,15 +9,16 @@ Maintainer  : v.d.sorokin@gmail.com
 Stability   : experimental
 Portability : portable
 
-Here is a longer description of this module, containing some
-commentary with @some markup@.
+Conduit monad transformer parser library.
 -}
 module Data.Conduit.ParserT
   ( ParserT
   , (<?>)
   , sinkParse
   , satisfy
+  , satisfyM
   , extract
+  , extractM
   , many
   , some
   , many'
@@ -50,16 +51,13 @@ data IResult e i m r = Fail e
                      | Partial !Bool !(Maybe i -> m (IResult e i m r))
                      | Done r
 
---instance MonadTrans (IResult e i) where
---  lift m = Done m
-
 instance Monad m => Functor (IResult e i m) where
   fmap f (Done o) = Done (f o)
   fmap _ (Fail e) = Fail e
   fmap f (Partial u g) = Partial u (liftM (fmap f) . g)
 
--- | The core parser type.  This is parameterised over the type @i@ of
--- string being processed.
+-- | The core parser type. This is parameterised over the type @i@ of
+-- stram being processed.
 --
 -- This type is an instance of the following classes:
 --
@@ -76,6 +74,7 @@ type Success e i a m r = a -> Bool -> m (IResult e i m r)
 instance Functor (ParserT e i m) where
   fmap g p = ParserT $ \i f s -> runParserT p i f (s . g)
 
+-- | The parser p <?> msg behaves as parser p, but whenever the parser p fails without consuming any input, it replaces expect error messages with the expect error message msg.
 (<?>) :: (Monoid (f e), Applicative f) => ParserT (f e) i m a -> e -> ParserT (f e) i m a
 p <?> e = ParserT $ \i f s -> runParserT p i (f . mappend (pure e)) s
 
@@ -131,7 +130,10 @@ instance (Monoid e, Monad m) => MonadPlus (ParserT e i m) where
 instance MonadTrans (ParserT e i) where
   lift m = ParserT $ \_ _ s -> (m >>= flip s False)
 
-sinkParse :: (Monad m, Monoid e) => ParserT e i m o -> Sink i m (Either (Maybe i, e) o)
+-- | Converting parser to conduit sink
+sinkParse :: (Monad m, Monoid e)
+          => ParserT e i m o -- ^ converted parser
+          -> Sink i m (Either (Maybe i, e) o)
 sinkParse p = await >>= \i -> lift (runParserT p i (\e _ -> return $ Fail e) (\r _ -> return $ Done r)) >>= \r -> go r i
     where
         go (Fail e) i = return $ (Left . (,) i) e
@@ -139,48 +141,86 @@ sinkParse p = await >>= \i -> lift (runParserT p i (\e _ -> return $ Fail e) (\r
         go (Partial False f) i = lift (f i) >>= \r -> go r i
         go (Partial True f) _ = await >>= \i' -> lift (f i') >>= \r -> go r i'
 
-satisfy :: (Monoid e) => (i -> Bool) -> ParserT e i m i
+-- | The parser satisfy g succeeds for any input for which the supplied function g returns True. Returns the input that is actually parsed.
+satisfy :: (Monoid e)
+        => (i -> Bool) -- ^ function for testing input
+        -> ParserT e i m i
 satisfy g = ParserT $ \ i f s -> fromMaybe (f mempty False) $ flip fmap i $ \i' -> if g i' then s i' True else f mempty False
 
-satisfyM :: (Monoid e, Monad m) => (i -> m Bool) -> ParserT e i m i
+-- | Monadic version of 'satisfy' function
+satisfyM :: (Monoid e, Monad m)
+         => (i -> m Bool)
+         -> ParserT e i m i
 satisfyM g = ParserT $ \ i f s -> fromMaybe (f mempty False) $ flip fmap i $ \i' -> ifM (g i') (s i' True) (f mempty False)
 
-extract :: Monoid e => (i -> Maybe o) -> ParserT e i m o
+-- | The parser succeeds if function return Just value
+extract :: Monoid e
+        => (i -> Maybe o) -- ^ function for translate input
+        -> ParserT e i m o
 extract g = ParserT $ \i f s -> maybe (f mempty False) (`s` True) . join $ fmap g i
 
-extractM :: (Monoid e, Monad m) => (i -> m (Maybe o)) -> ParserT e i m o
+-- | Monadic version of 'extract' function
+extractM :: (Monoid e, Monad m)
+         => (i -> m (Maybe o))
+         -> ParserT e i m o
 extractM g = ParserT $ \i f s -> maybe (f mempty False) (`s` True) =<< maybe (return Nothing) g i
 
+-- | This parser succeeds for any input. Returns the parsed input.
 any :: Monoid e => ParserT e i m i
 any = ParserT $ \ i f s -> maybe (f mempty False) (`s` True) i
 
+-- | This parser only succeeds at the end of the input.
 eos :: Monoid e => ParserT e i m ()
 eos = ParserT $ \ i f s -> if isNothing i then s () False else f mempty False
 
 -- | many p applies the parser p one or more times. Returns a Data.Sequence of the returned values of p.
-some :: (Monoid e, Monad m) => ParserT e i m o -> ParserT e i m (Seq o)
+some :: (Monoid e, Monad m)
+     => ParserT e i m o
+     -> ParserT e i m (Seq o)
 some p = (<|) <$> p <*> many p
 
 -- | many p applies the parser p zero or more times. Returns a Data.Sequence of the returned values of p.
-many :: (Monoid e, Monad m) => ParserT e i m o -> ParserT e i m (Seq o)
+many :: (Monoid e, Monad m)
+     => ParserT e i m o
+     -> ParserT e i m (Seq o)
 many p = pure Seq.empty <|> some p
 
--- | many p applies the parser p one or more times. Returns a Data.Sequence of the returned values of p.
-some' :: (Monoid e, Monad m) => ParserT e i m o -> ParserT e i m (Seq o)
+-- | many p applies the parser p one or more times (greedy version). Returns a Data.Sequence of the returned values of p.
+some' :: (Monoid e, Monad m)
+      => ParserT e i m o
+      -> ParserT e i m (Seq o)
 some' p = (<|) <$> p <*> many' p
 
--- | many p applies the parser p one or more times. Returns a Data.Sequence of the returned values of p.
-many' :: (Monoid e, Monad m) => ParserT e i m o -> ParserT e i m (Seq o)
+-- | many p applies the parser p zero or more times (greedy version). Returns a Data.Sequence of the returned values of p.
+many' :: (Monoid e, Monad m)
+      => ParserT e i m o
+      -> ParserT e i m (Seq o)
 many' p = some' p <|> pure Seq.empty
 
-someF :: (Monoid e, Monad m) => a -> (a ->  ParserT e i m a) -> ParserT e i m a
+-- | folds input stream with parser one or more times.
+someF :: (Monoid e, Monad m)
+      => a -- ^ accumulator
+      -> (a -> ParserT e i m a) -- ^ folding function
+      -> ParserT e i m a
 someF v f = f v >>= flip manyF f
 
-manyF :: (Monoid e, Monad m) => a -> (a ->  ParserT e i m a) -> ParserT e i m a
+-- | folds input stream with parser zero or more times.
+manyF :: (Monoid e, Monad m)
+      => a -- ^ accumulator
+      -> (a -> ParserT e i m a) -- ^ folding function
+      -> ParserT e i m a
 manyF v f = pure v <|> someF v f
 
-someF' :: (Monoid e, Monad m) => a -> (a ->  ParserT e i m a) -> ParserT e i m a
+-- | folds input stream with parser one or more times (greedy version).
+someF' :: (Monoid e, Monad m)
+       => a -- ^ accumulator
+       -> (a -> ParserT e i m a) -- ^ folding function
+       -> ParserT e i m a
 someF' v f = f v >>= flip manyF' f
 
-manyF' :: (Monoid e, Monad m) => a -> (a ->  ParserT e i m a) -> ParserT e i m a
+-- | folds input stream with parser zero or more times (greedy version).
+manyF' :: (Monoid e, Monad m)
+       => a -- ^ accumulator
+       -> (a -> ParserT e i m a) -- ^ folding function
+       -> ParserT e i m a
 manyF' v f = someF' v f <|> pure v

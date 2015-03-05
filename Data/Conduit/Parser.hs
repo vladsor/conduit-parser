@@ -169,28 +169,28 @@ many' p = some' p <|> pure Seq.empty
 -- | folds input stream with parser one or more times.
 someF :: Monoid e
       => a -- ^ accumulator
-     -> (a ->  Parser e i a) -- ^ folding function
+     -> (a -> Parser e i a) -- ^ folding function
      -> Parser e i a
 someF v f = f v >>= flip manyF f
 
 -- | folds input stream with parser zero or more times.
 manyF :: Monoid e
       => a -- ^ accumulator
-      -> (a ->  Parser e i a) -- ^ folding function
+      -> (a -> Parser e i a) -- ^ folding function
       -> Parser e i a
 manyF v f = pure v <|> someF v f
 
 -- | folds input stream with parser one or more times (greedy version).
 someF' :: Monoid e
        => a -- ^ accumulator
-       -> (a ->  Parser e i a) -- ^ folding function
+       -> (a -> Parser e i a) -- ^ folding function
        -> Parser e i a
 someF' v f = f v >>= flip manyF' f
 
 -- | folds input stream with parser zero or more times (greedy version).
 manyF' :: Monoid e
        => a -- ^ accumulator
-       -> (a ->  Parser e i a) -- ^ folding function
+       -> (a -> Parser e i a) -- ^ folding function
        -> Parser e i a
 manyF' v f = someF' v f <|> pure v
 
