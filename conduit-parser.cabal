@@ -5,7 +5,7 @@ license-file:   LICENSE
 maintainer:     Vladimir Sorokin <v.d.sorokin@gmail.com>
 synopsis:       Conduit parser
 description:    Conduit Parser
-category:       Web
+category:       Control, Conduit, Parsing
 build-type:     Simple
 cabal-version:  >=1.10
 homepage:       http://github.com/vladsor/conduit-parser
