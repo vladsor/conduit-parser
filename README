@@ -1,4 +1,8 @@
-Haskell library for parsing in conduit.
+Conduit-Parser
+
+Haskell library for streaming parsing in conduit.
+
+Quick start
 
 TODO[1]:
 Parser example
